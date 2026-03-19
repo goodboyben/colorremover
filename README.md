@@ -1,4 +1,5 @@
 # Color Remover
+<img width="1293" height="766" alt="Screenshot 2026-03-19 190015" src="https://github.com/user-attachments/assets/46d0e4a9-aed2-4bb6-93b1-055770e5a93c" />
 
 **Website:** [goodboyben.github.io/colorremover](https://goodboyben.github.io/colorremover)
 
