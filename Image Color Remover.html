@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Color Removal Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .checkerboard {
+            background-color: #f0f0f0;
+            background-image: 
+                linear-gradient(45deg, #d1d5db 25%, transparent 25%), 
+                linear-gradient(-45deg, #d1d5db 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #d1d5db 75%), 
+                linear-gradient(-45deg, transparent 75%, #d1d5db 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans min-h-screen p-8">
+    <div class="max-w-7xl mx-auto bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div class="p-6 border-b border-gray-200 bg-gray-50">
+            <h1 class="text-2xl font-semibold text-gray-900">Color Removal Tool</h1>
+            <p class="text-sm text-gray-600 mt-1">Upload an image, click a color to remove, and adjust the settings to refine the output.</p>
+        </div>
+
+        <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Left Column: Input -->
+            <div class="flex flex-col space-y-4">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-medium">Input Image</h2>
+                    <label class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors">
+                        Upload Image
+                        <input type="file" id="imageInput" accept="image/*" class="hidden">
+                    </label>
+                </div>
+
+                <div class="w-full aspect-square md:aspect-auto md:h-96 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center overflow-hidden bg-gray-50 relative group">
+                    <span id="uploadPrompt" class="text-gray-400 absolute pointer-events-none">No image uploaded</span>
+                    <img id="inputImage" class="max-w-full max-h-full object-contain hidden cursor-crosshair" alt="Input">
+                </div>
+
+                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+                    <div class="flex items-center space-x-4">
+                        <div class="w-10 h-10 rounded border border-gray-300 shadow-inner flex-shrink-0" id="colorSwatch" style="background-color: transparent;"></div>
+                        <div>
+                            <p class="text-sm font-medium text-gray-700">Selected Color</p>
+                            <p class="text-xs text-gray-500" id="colorValue">None selected</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label for="thresholdSlider" class="text-sm font-medium text-gray-700">Similarity Threshold</label>
+                            <div class="flex items-center space-x-1">
+                                <input type="number" id="thresholdNumber" min="0" max="100" value="10" class="w-16 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                <span class="text-sm text-gray-600">%</span>
+                            </div>
+                        </div>
+                        <input type="range" id="thresholdSlider" min="0" max="100" value="10" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Output -->
+            <div class="flex flex-col space-y-4">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-medium">Output Preview</h2>
+                    <button id="downloadBtn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        Download PNG
+                    </button>
+                </div>
+
+                <div class="w-full aspect-square md:aspect-auto md:h-96 border border-gray-300 rounded-lg flex items-center justify-center overflow-hidden checkerboard relative">
+                    <img id="outputImage" class="max-w-full max-h-full object-contain hidden" alt="Output Preview">
+                </div>
+
+                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3">
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        <input type="checkbox" id="highContrastToggle" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                        <span class="text-sm font-medium text-gray-700">High Contrast Preview (White = kept, Black = removed)</span>
+                    </label>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        <input type="checkbox" id="smoothToggle" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                        <span class="text-sm font-medium text-gray-700">Smooth Edges (Anti-aliasing)</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const imageInput = document.getElementById('imageInput');
+        const inputImage = document.getElementById('inputImage');
+        const outputImage = document.getElementById('outputImage');
+        const uploadPrompt = document.getElementById('uploadPrompt');
+        const colorSwatch = document.getElementById('colorSwatch');
+        const colorValue = document.getElementById('colorValue');
+        const thresholdSlider = document.getElementById('thresholdSlider');
+        const thresholdNumber = document.getElementById('thresholdNumber');
+        const highContrastToggle = document.getElementById('highContrastToggle');
+        const smoothToggle = document.getElementById('smoothToggle');
+        const downloadBtn = document.getElementById('downloadBtn');
+
+        let originalImageData = null;
+        let targetColor = null;
+        let normalDownloadUrl = null;
+
+        // Sync slider and number input
+        thresholdSlider.addEventListener('input', (e) => {
+            thresholdNumber.value = e.target.value;
+            processImage();
+        });
+
+        thresholdNumber.addEventListener('input', (e) => {
+            let val = parseInt(e.target.value);
+            if (isNaN(val)) val = 0;
+            if (val > 100) val = 100;
+            if (val < 0) val = 0;
+            thresholdSlider.value = val;
+            processImage();
+        });
+
+        highContrastToggle.addEventListener('change', processImage);
+        smoothToggle.addEventListener('change', processImage);
+
+        // Handle Image Upload
+        imageInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    inputImage.src = img.src;
+                    inputImage.classList.remove('hidden');
+                    uploadPrompt.classList.add('hidden');
+                    
+                    // Extract image data to memory
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    
+                    targetColor = null;
+                    colorSwatch.style.backgroundColor = 'transparent';
+                    colorValue.textContent = 'None selected';
+                    
+                    processImage();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Handle Color Selection
+        inputImage.addEventListener('click', function(e) {
+            if (!originalImageData) return;
+
+            const rect = inputImage.getBoundingClientRect();
+            
+            // Calculate coordinates relative to intrinsic image size
+            const scaleX = inputImage.naturalWidth / rect.width;
+            const scaleY = inputImage.naturalHeight / rect.height;
+            
+            const x = Math.floor((e.clientX - rect.left) * scaleX);
+            const y = Math.floor((e.clientY - rect.top) * scaleY);
+
+            // Ensure coordinates are within bounds
+            if (x < 0 || x >= originalImageData.width || y < 0 || y >= originalImageData.height) return;
+
+            const index = (y * originalImageData.width + x) * 4;
+            const r = originalImageData.data[index];
+            const g = originalImageData.data[index + 1];
+            const b = originalImageData.data[index + 2];
+
+            targetColor = { r, g, b };
+            colorSwatch.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+            colorValue.textContent = `RGB(${r}, ${g}, ${b})`;
+
+            processImage();
+        });
+
+        function processImage() {
+            if (!originalImageData) return;
+
+            const width = originalImageData.width;
+            const height = originalImageData.height;
+            
+            const threshold = parseFloat(thresholdSlider.value);
+            const isHighContrast = highContrastToggle.checked;
+            const isSmooth = smoothToggle.checked;
+
+            const previewData = new ImageData(new Uint8ClampedArray(originalImageData.data), width, height);
+            const downloadData = new ImageData(new Uint8ClampedArray(originalImageData.data), width, height);
+
+            // Maximum possible Euclidean distance in RGB space
+            const maxDist = 441.673; 
+            const thresholdDist = (threshold / 100) * maxDist;
+            const feather = isSmooth ? (maxDist * 0.08) : 0;
+
+            for (let i = 0; i < previewData.data.length; i += 4) {
+                const r = originalImageData.data[i];
+                const g = originalImageData.data[i + 1];
+                const b = originalImageData.data[i + 2];
+                const a = originalImageData.data[i + 3];
+
+                let newAlpha = a;
+
+                if (targetColor && a > 0) {
+                    const dist = Math.sqrt(
+                        Math.pow(r - targetColor.r, 2) +
+                        Math.pow(g - targetColor.g, 2) +
+                        Math.pow(b - targetColor.b, 2)
+                    );
+
+                    if (dist <= thresholdDist) {
+                        newAlpha = 0;
+                    } else if (isSmooth && dist < thresholdDist + feather) {
+                        // Smooth interpolation for edges
+                        const ratio = (dist - thresholdDist) / feather;
+                        const smoothRatio = ratio * ratio * (3 - 2 * ratio); // cubic easing
+                        newAlpha = a * smoothRatio;
+                    }
+                }
+
+                // Apply to standard download data
+                downloadData.data[i + 3] = newAlpha;
+
+                // Apply to UI preview data
+                if (isHighContrast) {
+                    // Map alpha to intensity (255 alpha = 255 white, 0 alpha = 0 black)
+                    const intensity = (newAlpha / 255) * 255;
+                    previewData.data[i] = intensity;
+                    previewData.data[i + 1] = intensity;
+                    previewData.data[i + 2] = intensity;
+                    previewData.data[i + 3] = 255; // Force opacity to display black/white
+                } else {
+                    previewData.data[i + 3] = newAlpha;
+                }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+
+            // Generate Preview Image
+            ctx.putImageData(previewData, 0, 0);
+            outputImage.src = canvas.toDataURL('image/png');
+            outputImage.classList.remove('hidden');
+
+            // Generate Downloadable File Image Data (Independent of High Contrast)
+            ctx.putImageData(downloadData, 0, 0);
+            normalDownloadUrl = canvas.toDataURL('image/png');
+            
+            downloadBtn.disabled = false;
+        }
+
+        // Handle Download Action
+        downloadBtn.addEventListener('click', () => {
+            if (!normalDownloadUrl) return;
+            const a = document.createElement('a');
+            a.href = normalDownloadUrl;
+            a.download = 'transparent_output.png';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+    </script>
+</body>
+</html>
